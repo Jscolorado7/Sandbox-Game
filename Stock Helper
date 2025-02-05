@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stock Helper - Load & Save Settings JSON</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    /* 
+      1) DEFAULTS: 3 rows, Light theme, 17 columns per row, max btn font 15
+    */
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+    :root {
+      --main-font-size: 14px;  /* entire page except quick buttons */
+      --btn-font-size: 14px;   /* quick buttons only (max 15 from slider) */
+      --font-weight: normal;   /* normal or bold */
+    }
+    body.light-theme {
+      --bg-color: #f0f0f0;
+      --text-color: #222;
+      --accent-color: #666;
+      --border-color: #ccc;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+    }
+    body.dark-theme {
+      --bg-color: #222;
+      --text-color: #eee;
+      --accent-color: #888;
+      --border-color: #444;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+    }
+    body {
+      font-size: var(--main-font-size);
+      font-weight: var(--font-weight);
+    }
+
+    /* HEADER */
+    .header-wrapper {
+      display: flex;
+      justify-content: center;
+      background: var(--border-color);
+    }
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 90%;
+      max-width: 1400px;
+      padding: 8px 0;
+    }
+    .button-group {
+      display: flex;
+      gap: 16px;
+    }
+    .load-button {
+      background: var(--accent-color);
+      color: #000;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 4px;
+      font-weight: var(--font-weight);
+      cursor: pointer;
+    }
+    .load-button:hover {
+      filter: brightness(1.2);
+    }
+    #fileInput {
+      display: none;
+    }
+    .settings-button {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-weight: var(--font-weight);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .settings-button:hover {
+      background: var(--accent-color);
+      color: #000;
+    }
+
+    /* QUICK BUTTONS (17 columns) */
+    .buttons-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 90%;
+      max-width: 1400px;
+      margin: 20px auto 0 auto;
+    }
+    .button-row {
+      display: flex;
+      gap: 6px;
+    }
+    .quick-btn {
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      border-radius: 4px;
+      cursor: pointer;
+      width: 75px; 
+      height: 50px;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+      text-align: center;
+      line-height: normal;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px;
+      font-size: var(--btn-font-size);
+      font-weight: var(--font-weight);
+    }
+    .quick-btn:hover {
+      background: var(--accent-color);
+      color: #000;
+    }
+
+    /* SEARCH BOX */
+    .search-input {
+      display: block;
+      margin: 20px auto;
+      width: 400px;
+      max-width: 80%;
+      padding: 8px 10px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      outline: none;
+      font-size: var(--main-font-size);
+      font-weight: var(--font-weight);
+    }
+
+    /* TABLE */
+    .table-container {
+      width: 90%;
+      max-width: 1400px;
+      margin: 20px auto 40px auto;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-color);
+      overflow: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      background: var(--bg-color);
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--accent-color);
+      font-weight: var(--font-weight);
+    }
+    td {
+      padding: 8px;
+      border-bottom: 1px solid var(--border-color);
+      font-size: var(--main-font-size);
+      font-weight: var(--font-weight);
+      color: var(--text-color);
+    }
+    tr:hover {
+      background: #4444;
+      cursor: pointer;
+    }
+    tr.selected {
+      background: #6666 !important;
+    }
+
+    /* EDIT POPUP */
+    .edit-backdrop {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      z-index: 999;
+    }
+    .edit-backdrop.active {
+      display: block;
+    }
+    .edit-dialog {
+      display: none;
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 400px;
+      max-width: 90%;
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 20px;
+      z-index: 1000;
+    }
+    .edit-dialog.active {
+      display: block;
+    }
+    .edit-dialog h3 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      font-size: 18px;
+      color: var(--accent-color);
+      font-weight: var(--font-weight);
+    }
+    .edit-dialog label {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text-color);
+      font-weight: var(--font-weight);
+    }
+    .edit-dialog textarea {
+      width: 100%;
+      height: 70px;
+      padding: 6px 8px;
+      margin-bottom: 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      font-size: var(--main-font-size);
+      font-weight: var(--font-weight);
+      resize: none;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+    .edit-save-btn {
+      background: var(--accent-color);
+      color: #000;
+      border: none;
+      padding: 6px 10px;
+      font-size: var(--main-font-size);
+      font-weight: var(--font-weight);
+      border-radius: 4px;
+      float: right;
+      cursor: pointer;
+    }
+    .edit-save-btn:hover {
+      filter: brightness(1.2);
+    }
+
+    /* SETTINGS MODAL */
+    .settings-backdrop {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      z-index: 1100;
+    }
+    .settings-backdrop.active {
+      display: block;
+    }
+    .settings-modal {
+      display: none;
+      position: fixed;
+      z-index: 1200;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--bg-color);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 20px;
+      width: 350px;
+      max-width: 90%;
+    }
+    .settings-modal.active {
+      display: block;
+    }
+    .settings-modal h2 {
+      margin-top: 0;
+      margin-bottom: 16px;
+      color: var(--accent-color);
+      font-size: 18px;
+      font-weight: var(--font-weight);
+    }
+    .settings-row {
+      margin-bottom: 12px;
+    }
+    .settings-label {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: var(--font-weight);
+      color: var(--text-color);
+    }
+    .settings-save-btn {
+      background: var(--accent-color);
+      color: #000;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-weight: var(--font-weight);
+      cursor: pointer;
+      float: right;
+      margin-top: 10px;
+    }
+    .settings-save-btn:hover {
+      filter: brightness(1.2);
+    }
+    .export-json-btn, .import-json-btn {
+      background: var(--accent-color);
+      color: #000;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-weight: var(--font-weight);
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    .export-json-btn:hover, .import-json-btn:hover {
+      filter: brightness(1.2);
+    }
+    /* Hidden file input for loading JSON settings */
+    #settingsFileInput {
+      display: none;
+    }
+  </style>
+</head>
+<body class="light-theme"><!-- start with Light mode -->
+<div class="header-wrapper">
+  <div class="header-content">
+    <div class="button-group">
+      <button id="loadBtn" class="load-button">Load Stock Report</button>
+      <input type="file" id="fileInput" accept=".xlsx" />
+    </div>
+    <button id="openSettingsBtn" class="settings-button">Settings</button>
+  </div>
+</div>
+
+<!-- QUICK BUTTONS -->
+<div id="buttonsContainer" class="buttons-container"></div>
+
+<!-- SEARCH BOX -->
+<input
+  type="text"
+  id="searchBox"
+  class="search-input"
+  placeholder="Search by Item Number or Description..."
+/>
+
+<!-- TABLE -->
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>Item Number</th>
+        <th>Description</th>
+        <th>Inventory</th>
+      </tr>
+    </thead>
+    <tbody id="resultsTable"></tbody>
+  </table>
+</div>
+
+<!-- EDIT POPUP -->
+<div id="btnEditBackdrop" class="edit-backdrop"></div>
+<div id="btnEditDialog" class="edit-dialog">
+  <h3>Edit Quick-Search Button</h3>
+  <label for="editLabel">Label (up to 3 lines):</label>
+  <textarea id="editLabel"></textarea>
+  <label for="editTerm">Search Term:</label>
+  <textarea id="editTerm"></textarea>
+  <button id="editSaveBtn" class="edit-save-btn">Save</button>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="settingsBackdrop" class="settings-backdrop"></div>
+<div id="settingsModal" class="settings-modal">
+  <h2>UI Settings</h2>
+
+  <!-- Light / Dark -->
+  <div class="settings-row">
+    <label class="settings-label">Theme</label>
+    <label style="margin-right:20px;">
+      <input type="radio" name="themeChoice" value="light" /> Light
+    </label>
+    <label>
+      <input type="radio" name="themeChoice" value="dark" /> Dark
+    </label>
+  </div>
+
+  <!-- Bold toggle -->
+  <div class="settings-row">
+    <label>
+      <input type="checkbox" id="boldToggle" />
+      <span class="settings-label" style="display:inline;">Use Bold Text</span>
+    </label>
+  </div>
+
+  <!-- Main Font Size -->
+  <div class="settings-row">
+    <label class="settings-label">Main Font Size (px)</label>
+    <input type="range" id="mainFontSizeInput" min="10" max="40" step="1" />
+    <span id="mainFontSizeValue" style="margin-left:8px;"></span>
+  </div>
+
+  <!-- Button Font Size, max=15 -->
+  <div class="settings-row">
+    <label class="settings-label">Button Font Size (px)</label>
+    <input type="range" id="btnFontSizeInput" min="10" max="15" step="1" />
+    <span id="btnFontSizeValue" style="margin-left:8px;"></span>
+  </div>
+
+  <!-- Number of Button Rows (1-6) -->
+  <div class="settings-row">
+    <label class="settings-label">Number of Button Rows (1-6)</label>
+    <input type="range" id="btnRowsInput" min="1" max="6" step="1" />
+    <span id="btnRowsValue" style="margin-left:8px;"></span>
+  </div>
+
+  <!-- Buttons for Loading & Saving JSON Settings -->
+  <button id="importJSONBtn" class="import-json-btn">Load Settings</button>
+  <button id="exportJSONBtn" class="export-json-btn">Save Settings</button>
+  <button id="saveSettingsBtn" class="settings-save-btn">Close</button>
+
+  <!-- Hidden file input to load settings JSON if showOpenFilePicker is not available -->
+  <input type="file" id="settingsFileInput" accept=".json" />
+</div>
+
+<script>
+/*************************************************************************
+ * 0) BASIC APP SETTINGS
+ *************************************************************************/
+let appSettings = {
+  theme: "light", 
+  bold: false, 
+  mainFontSize: 14,
+  btnFontSize: 14,
+  btnRows: 3  // default 3
+};
+// We'll store up to 120 quick buttons
+const BUTTON_COLS = 17; // per row
+let defaultQuickButtons = [
+  { label: "BE365", term: "BE365" }, { label: "FE595", term: "FE595" },
+  { label: "BE489", term: "BE489" }, { label: "BE499", term: "BE499" },
+  { label: "BE469", term: "BE469" }, { label: "F51",   term: "F51"   },
+  { label: "F40",   term: "F40"   }, { label: "F60",   term: "F60"   },
+  { label: "FE285", term: "FE285" }, { label: "BE375", term: "BE375" },
+  { label: "BE468", term: "BE468" }, { label: "FE575", term: "FE575" },
+  { label: "FE695", term: "FE695" }, { label: "FE789", term: "FE789" },
+  { label: "B60",   term: "B60"   }, { label: "B62",   term: "B62"   },
+  { label: "F58",   term: "F58"   }, { label: "F59",   term: "F59"   },
+  { label: "F92",   term: "F92"   }, { label: "F94",   term: "F94"   }
+];
+function ensure120(arr) {
+  while (arr.length<120) arr.push({ label:"", term:"" });
+  if (arr.length>120) arr = arr.slice(0,120);
+  return arr;
+}
+let quickButtons = [];
+let selectedRow = null; // to highlight a table row
+let stockData = [];     // loaded Excel data
+
+/*************************************************************************
+ * 1) LOAD/SAVE APP SETTINGS + QUICK BUTTONS in localStorage
+ *************************************************************************/
+function loadAppSettings() {
+  const saved = localStorage.getItem("stockHelperSettings");
+  if (!saved) return;
+  try {
+    const parsed = JSON.parse(saved);
+    if (parsed.theme) appSettings.theme = parsed.theme;
+    if (typeof parsed.bold==="boolean") appSettings.bold = parsed.bold;
+    if (parsed.mainFontSize) appSettings.mainFontSize = +parsed.mainFontSize;
+    if (parsed.btnFontSize)  appSettings.btnFontSize  = +parsed.btnFontSize;
+    if (parsed.btnRows)      appSettings.btnRows      = +parsed.btnRows;
+  } catch(e){}
+}
+function saveAppSettings() {
+  localStorage.setItem("stockHelperSettings", JSON.stringify(appSettings));
+}
+function loadQuickButtons() {
+  const saved = localStorage.getItem("stockHelperButtons");
+  if (!saved) {
+    quickButtons = ensure120([...defaultQuickButtons]);
+    return;
+  }
+  try {
+    const parsed = JSON.parse(saved);
+    if (!parsed || !parsed.buttons) {
+      quickButtons = ensure120([...defaultQuickButtons]);
+    } else {
+      quickButtons = ensure120(parsed.buttons);
+    }
+  } catch(e){
+    quickButtons = ensure120([...defaultQuickButtons]);
+  }
+}
+function saveQuickButtons() {
+  localStorage.setItem("stockHelperButtons", JSON.stringify({ buttons: quickButtons }));
+}
+
+/*************************************************************************
+ * 2) THEME & UI
+ *************************************************************************/
+function applyTheme() {
+  // Light vs Dark
+  if (appSettings.theme === "light") {
+    document.body.classList.remove("dark-theme");
+    document.body.classList.add("light-theme");
+  } else {
+    document.body.classList.remove("light-theme");
+    document.body.classList.add("dark-theme");
+  }
+  // Bold
+  const fw = appSettings.bold ? "bold" : "normal";
+  document.documentElement.style.setProperty("--font-weight", fw);
+
+  // Font sizes
+  document.documentElement.style.setProperty("--main-font-size", appSettings.mainFontSize+"px");
+  document.documentElement.style.setProperty("--btn-font-size", appSettings.btnFontSize+"px");
+
+  // Rebuild
+  buildButtonsUI();
+  doSearch();
+}
+function buildButtonsUI() {
+  const container = document.getElementById("buttonsContainer");
+  container.innerHTML = "";
+
+  const rows = Math.min(Math.max(appSettings.btnRows,1),6);
+  for (let r=0; r<rows; r++) {
+    const rowDiv = document.createElement("div");
+    rowDiv.className = "button-row";
+    for (let c=0; c<BUTTON_COLS; c++) {
+      let idx = r*BUTTON_COLS + c;
+      if (idx>=quickButtons.length) break;
+      const bInfo = quickButtons[idx];
+      const btn = document.createElement("button");
+      btn.className = "quick-btn";
+      btn.textContent = bInfo.label;
+
+      // click => search
+      btn.addEventListener("click", () => {
+        document.getElementById("searchBox").value = bInfo.term;
+        doSearch();
+      });
+      // right click => edit
+      btn.addEventListener("contextmenu", evt => {
+        evt.preventDefault();
+        openEditDialog(idx);
+      });
+      rowDiv.appendChild(btn);
+    }
+    container.appendChild(rowDiv);
+  }
+}
+
+/*************************************************************************
+ * 3) LOAD EXCEL
+ *************************************************************************/
+async function loadExcel(file) {
+  try {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, { type:"array" });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header:1 });
+    if (!aoa || aoa.length===0) {
+      alert("Excel is empty");
+      return;
+    }
+    // find row with "item number" & "description"
+    let headerIdx=-1;
+    for (let r=0; r<Math.min(aoa.length,10); r++){
+      const rowLow = aoa[r].map(x=>String(x||"").trim().toLowerCase());
+      if (rowLow.includes("item number") && rowLow.includes("description")) {
+        headerIdx=r;
+        break;
+      }
+    }
+    if (headerIdx<0) headerIdx=0;
+    const headers = (aoa[headerIdx]||[]).map(x=>String(x||"").trim().toLowerCase());
+    let rawRows=[];
+    for (let i=headerIdx+1; i<aoa.length; i++){
+      if (!aoa[i] || aoa[i].length===0) continue;
+      let rowObj={};
+      for(let c=0;c<headers.length;c++){
+        rowObj[headers[c]]=aoa[i][c];
+      }
+      rawRows.push(rowObj);
+    }
+
+    let idxItem = headers.indexOf("item number");
+    let idxDesc = headers.indexOf("description");
+    let idxInv  = headers.indexOf("sum of available inventory");
+    if (idxInv<0) idxInv = headers.indexOf("inventory");
+    if (idxInv<0) idxInv = headers.indexOf("qty");
+
+    if (idxItem<0 && headers.length>0) idxItem=0;
+    if (idxDesc<0 && headers.length>1) idxDesc=1;
+    if (idxInv<0 && headers.length>2) idxInv=2;
+
+    stockData = rawRows.map(r=>({
+      "Item Number": (idxItem>=0)?r[headers[idxItem]]:"",
+      "Description": (idxDesc>=0)?r[headers[idxDesc]]:"",
+      "Inventory":   (idxInv>=0)? r[headers[idxInv]]:""
+    }));
+    doSearch();
+  } catch(err){
+    alert("Error reading Excel: "+err.message);
+  }
+}
+
+/*************************************************************************
+ * 4) SEARCH
+ *************************************************************************/
+function doSearch(){
+  const q = document.getElementById("searchBox").value.trim().toLowerCase();
+  const tBody = document.getElementById("resultsTable");
+  tBody.innerHTML="";
+  selectedRow=null;
+  if (stockData.length===0) return;
+  let filtered = !q?stockData : stockData.filter(row=>{
+    let itemNum = String(row["Item Number"]||"").toLowerCase();
+    let desc    = String(row["Description"]||"").toLowerCase();
+    return itemNum.includes(q) || desc.includes(q);
+  });
+  filtered.forEach(row=>{
+    const tr=document.createElement("tr");
+    const tdItem=document.createElement("td");
+    tdItem.textContent=row["Item Number"]||"";
+    const tdDesc=document.createElement("td");
+    tdDesc.textContent=row["Description"]||"";
+    const tdInv=document.createElement("td");
+    tdInv.textContent=row["Inventory"]||"";
+    tdInv.style.textAlign="right"; // align inventory right
+    tr.appendChild(tdItem);
+    tr.appendChild(tdDesc);
+    tr.appendChild(tdInv);
+    tr.addEventListener("click",()=>{
+      highlightRow(tr);
+      copyToClipboard(tdItem.textContent+"    "+tdDesc.textContent);
+    });
+    tBody.appendChild(tr);
+  });
+}
+
+/*************************************************************************
+ * 5) ROW HIGHLIGHT
+ *************************************************************************/
+function highlightRow(tr){
+  if (selectedRow){
+    selectedRow.classList.remove("selected");
+  }
+  selectedRow=tr;
+  tr.classList.add("selected");
+}
+
+/*************************************************************************
+ * 6) COPY TO CLIPBOARD
+ *************************************************************************/
+function copyToClipboard(text){
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(text).catch(err=>console.log(err));
+  } else {
+    const ta=document.createElement("textarea");
+    ta.value=text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  }
+}
+
+/*************************************************************************
+ * 7) EDIT DIALOG (right-click button)
+ *************************************************************************/
+let editingIndex=null;
+function openEditDialog(index){
+  editingIndex=index;
+  let btnData=quickButtons[index];
+  document.getElementById("editLabel").value=btnData.label;
+  document.getElementById("editTerm").value=btnData.term;
+  document.getElementById("btnEditBackdrop").classList.add("active");
+  document.getElementById("btnEditDialog").classList.add("active");
+}
+function closeEditDialog(){
+  editingIndex=null;
+  document.getElementById("btnEditBackdrop").classList.remove("active");
+  document.getElementById("btnEditDialog").classList.remove("active");
+}
+function saveEditDialog(){
+  if(editingIndex!=null){
+    let newLabel=document.getElementById("editLabel").value.trim();
+    let newTerm=document.getElementById("editTerm").value.trim();
+    quickButtons[editingIndex].label=newLabel;
+    quickButtons[editingIndex].term=newTerm;
+    saveQuickButtons();
+    buildButtonsUI();
+  }
+  closeEditDialog();
+}
+
+/*************************************************************************
+ * 8) SETTINGS MODAL
+ *************************************************************************/
+const settingsBackdrop=document.getElementById("settingsBackdrop");
+const settingsModal=document.getElementById("settingsModal");
+function openSettings(){
+  // radio for theme
+  const themeRadios=document.getElementsByName("themeChoice");
+  for(let r of themeRadios){
+    r.checked=(r.value===appSettings.theme);
+  }
+  // bold
+  document.getElementById("boldToggle").checked=appSettings.bold;
+  // main font
+  document.getElementById("mainFontSizeInput").value=appSettings.mainFontSize;
+  document.getElementById("mainFontSizeValue").textContent=appSettings.mainFontSize+"px";
+  // button font
+  document.getElementById("btnFontSizeInput").value=appSettings.btnFontSize;
+  document.getElementById("btnFontSizeValue").textContent=appSettings.btnFontSize+"px";
+  // rows
+  document.getElementById("btnRowsInput").value=appSettings.btnRows;
+  document.getElementById("btnRowsValue").textContent=appSettings.btnRows;
+
+  settingsBackdrop.classList.add("active");
+  settingsModal.classList.add("active");
+}
+function closeSettings(){
+  settingsBackdrop.classList.remove("active");
+  settingsModal.classList.remove("active");
+  // save final to localStorage
+  saveAppSettings();
+}
+
+/*************************************************************************
+ * 8B) REAL-TIME SLIDERS
+ *************************************************************************/
+function initRealTimeSliders(){
+  // theme
+  const themeRadios=document.getElementsByName("themeChoice");
+  for(let r of themeRadios){
+    r.addEventListener("change",()=>{
+      if(r.checked){
+        appSettings.theme=r.value;
+        applyTheme();
+      }
+    });
+  }
+  // bold
+  document.getElementById("boldToggle").addEventListener("change", e=>{
+    appSettings.bold=e.target.checked;
+    applyTheme();
+  });
+  // main font
+  const mainFsSlider=document.getElementById("mainFontSizeInput");
+  mainFsSlider.addEventListener("input", e=>{
+    appSettings.mainFontSize=+e.target.value||14;
+    document.getElementById("mainFontSizeValue").textContent=appSettings.mainFontSize+"px";
+    applyTheme();
+  });
+  // btn font
+  const btnFsSlider=document.getElementById("btnFontSizeInput");
+  btnFsSlider.addEventListener("input", e=>{
+    appSettings.btnFontSize=+e.target.value||14;
+    document.getElementById("btnFontSizeValue").textContent=appSettings.btnFontSize+"px";
+    applyTheme();
+  });
+  // rows
+  const rowSlider=document.getElementById("btnRowsInput");
+  rowSlider.addEventListener("input", e=>{
+    appSettings.btnRows=+e.target.value||3;
+    document.getElementById("btnRowsValue").textContent=appSettings.btnRows;
+    applyTheme();
+  });
+}
+
+/*************************************************************************
+ * 9) EXPORT SETTINGS (with showSaveFilePicker fallback)
+ *************************************************************************/
+async function exportSettingsToJSON(){
+  // combine appSettings + quickButtons
+  const data={
+    appSettings:appSettings,
+    quickButtons:quickButtons
+  };
+  const jsonStr=JSON.stringify(data,null,2);
+
+  // try FileSystem Access API
+  if(window.showSaveFilePicker){
+    try{
+      const handle=await window.showSaveFilePicker({
+        suggestedName:"stock_helper_settings.json",
+        types:[{description:"JSON Files", accept:{"application/json":[".json"]}}]
+      });
+      const writable=await handle.createWritable();
+      await writable.write(jsonStr);
+      await writable.close();
+      return;
+    }catch(err){
+      console.warn("showSaveFilePicker not used or canceled:",err);
+    }
+  }
+  // fallback
+  const blob=new Blob([jsonStr],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;
+  link.download="stock_helper_settings.json";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/*************************************************************************
+ * 10) IMPORT SETTINGS (Load .json)
+ *************************************************************************/
+async function importSettingsFromJSON(){
+  // try modern showOpenFilePicker
+  if(window.showOpenFilePicker){
+    try{
+      const [fileHandle]=await window.showOpenFilePicker({
+        types:[{description:"JSON Files",accept:{"application/json":[".json"]}}],
+        multiple:false
+      });
+      const fileData=await fileHandle.getFile();
+      const text=await fileData.text();
+      applyImportedSettingsJSON(text);
+      return;
+    }catch(err){
+      console.warn("showOpenFilePicker canceled or not available:",err);
+    }
+  }
+  // fallback => hidden file input
+  document.getElementById("settingsFileInput").click();
+}
+
+// triggered when user picks a .json in fallback input
+function fallbackSettingsFileChosen(e){
+  if(!e.target.files || e.target.files.length===0) return;
+  const file=e.target.files[0];
+  const reader=new FileReader();
+  reader.onload=(evt)=>{
+    const text=evt.target.result;
+    applyImportedSettingsJSON(text);
+  };
+  reader.readAsText(file);
+}
+
+function applyImportedSettingsJSON(jsonText){
+  try{
+    const parsed=JSON.parse(jsonText);
+    if(parsed.appSettings){
+      appSettings=parsed.appSettings;
+    }
+    if(parsed.quickButtons && Array.isArray(parsed.quickButtons)){
+      quickButtons=ensure120(parsed.quickButtons);
+    }
+    // store to localStorage
+    saveAppSettings();
+    saveQuickButtons();
+
+    // re-apply
+    applyTheme();
+    // close modal if open
+    closeSettings();
+    alert("Settings loaded successfully!");
+  }catch(err){
+    alert("Error parsing settings file: "+err.message);
+  }
+}
+
+/*************************************************************************
+ * INIT
+ *************************************************************************/
+document.addEventListener("DOMContentLoaded",()=>{
+  // load from localStorage
+  loadAppSettings();
+  loadQuickButtons();
+  // apply
+  applyTheme();
+  // build
+  buildButtonsUI();
+
+  // hook up load excel
+  const fileInput=document.getElementById("fileInput");
+  document.getElementById("loadBtn").addEventListener("click",()=>fileInput.click());
+  fileInput.addEventListener("change", e=>{
+    if(e.target.files && e.target.files.length>0){
+      loadExcel(e.target.files[0]);
+    }
+  });
+  // searching
+  document.getElementById("searchBox").addEventListener("input",doSearch);
+
+  // edit popup
+  document.getElementById("btnEditBackdrop").addEventListener("click",closeEditDialog);
+  document.getElementById("editSaveBtn").addEventListener("click",saveEditDialog);
+
+  // settings
+  document.getElementById("openSettingsBtn").addEventListener("click",openSettings);
+  document.getElementById("saveSettingsBtn").addEventListener("click",closeSettings);
+  document.getElementById("settingsBackdrop").addEventListener("click",closeSettings);
+
+  // real-time sliders
+  initRealTimeSliders();
+
+  // load & save settings
+  document.getElementById("exportJSONBtn").addEventListener("click",exportSettingsToJSON);
+  document.getElementById("importJSONBtn").addEventListener("click",importSettingsFromJSON);
+
+  // fallback file input for loading .json
+  document.getElementById("settingsFileInput").addEventListener("change",fallbackSettingsFileChosen);
+});
+</script>
+</body>
+</html>
