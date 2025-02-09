@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Zones Demo with Integrated In-Window UI (Toggle Panel & Save Edition)</title>
+  <style>
+    body {
+      margin: 0;
+      background: #333;
+      color: #fff;
+      font-family: sans-serif;
+      user-select: none;
+    }
+    /* The container wraps the canvas and all overlays */
+    #gameContainer {
+      position: relative;
+      width: 960px;
+      height: 640px;
+      margin: 20px auto;
+      border: 2px solid #666;
+      background: #000;
+    }
+    /* The main game canvas */
+    #gameCanvas {
+      display: block;
+      width: 960px;
+      height: 640px;
+      image-rendering: pixelated;
+    }
+    /* Persistent Crafting Overlay (always visible) */
+    #craftingOverlay {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      z-index: 50;
+    }
+    #craftingOverlay .dropup-wrapper {
+      display: inline-block;
+      position: relative;
+    }
+    .dropup-btn {
+      cursor: pointer;
+      background: #444;
+      color: #fff;
+      border: 1px solid #666;
+      padding: 5px 10px;
+      font-size: 14px;
+    }
+    .dropup-content {
+      display: none;
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      background-color: #333;
+      border: 1px solid #666;
+      min-width: 180px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+      z-index: 999;
+    }
+    .dropup-content div {
+      padding: 8px;
+      cursor: pointer;
+      border-bottom: 1px solid #555;
+    }
+    .dropup-content div:hover {
+      background-color: #444;
+    }
+    .dropup-wrapper.show .dropup-content {
+      display: block;
+    }
+    /* Inventory & Skills Overlay (hidden by default) */
+    #inventoryOverlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 400px;
+      background: rgba(0,0,0,0.8);
+      border: 2px solid #666;
+      border-radius: 5px;
+      padding: 20px;
+      transform: translate(-50%, -50%);
+      z-index: 100;
+      display: none;
+    }
+    #inventoryOverlay h2 {
+      margin-top: 0;
+      text-align: center;
+    }
+    /* Tile Selector Overlay for Editor Mode */
+    #tileSelectorOverlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 300px;
+      height: 500px;
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid #666;
+      border-radius: 5px;
+      padding: 10px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none; /* only shown in editor mode */
+    }
+    /* When toggled to left side */
+    #tileSelectorOverlay.leftSide {
+      left: 10px;
+      right: auto;
+    }
+    #tileSelectorOverlay h2 {
+      margin-top: 0;
+      font-size: 18px;
+      text-align: center;
+    }
+    #tileSelectorOverlay input[type="text"] {
+      width: 100%;
+      padding: 5px;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+      border: 1px solid #666;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+    /* Map controls container for Save and Toggle buttons */
+    #mapControls {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    #mapControls button {
+      margin: 5px;
+      padding: 5px 10px;
+      font-size: 14px;
+      background: #444;
+      border: 1px solid #666;
+      color: #fff;
+      cursor: pointer;
+    }
+    .tileItem {
+      display: flex;
+      align-items: center;
+      padding: 5px;
+      margin-bottom: 5px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-radius: 3px;
+    }
+    .tileItem.selected {
+      border-color: #ff0;
+      background: rgba(255,255,0,0.1);
+    }
+    .tileItem img {
+      width: 32px;
+      height: 32px;
+      margin-right: 10px;
+    }
+    .tileItem span {
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Container for the canvas and all overlays -->
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="960" height="640"></canvas>
+
+    <!-- Persistent Crafting Overlay (always visible) -->
+    <div id="craftingOverlay">
+      <div class="dropup-wrapper" id="dropupWrapper">
+        <button class="dropup-btn" id="dropupBtn">Select Item</button>
+        <div class="dropup-content" id="dropupContent">
+          <div data-item="woodWall">Wooden Wall (5 wood)</div>
+          <div data-item="woodDoor">Wooden Door (5 wood)</div>
+          <div data-item="bomb">Bomb (3 tiles)</div>
+        </div>
+      </div>
+      <button id="craftBtn">Craft</button>
+    </div>
+
+    <!-- Inventory & Skills Overlay (toggles with V key) -->
+    <div id="inventoryOverlay">
+      <h2>Inventory & Skills</h2>
+      <div id="inventoryDetails"></div>
+      <div id="skillsDetails"></div>
+    </div>
+
+    <!-- Tile Selector Overlay for Editor Mode -->
+    <div id="tileSelectorOverlay">
+      <h2>Select Tile</h2>
+      <input type="text" id="tileSearch" placeholder="Search tiles...">
+      <div id="mapControls">
+        <button id="saveToCodeBtn">Save to Code</button>
+        <button id="toggleTilePanelPosition">Toggle Panel Side</button>
+      </div>
+      <div id="tileList"></div>
+    </div>
+  </div>
+
+  <script>
+    /*******************************************************
+     * Zones Demo with Integrated In-Window UI (Toggle Panel & Save Edition)
+     *
+     * - Two zones are maintained.
+     * - The player moves (WASD), gathers resources (Space), and crafts using the persistent crafting UI.
+     * - Press E to toggle Editor Mode (which shows the Tile Selector overlay).
+     * - Press V to toggle the Inventory & Skills overlay.
+     * - The Tile Selector panel now includes both a "Save to Code" button and a toggle button to move it from right to left.
+     *
+     * NEW BOMB FUNCTIONALITY:
+     * - The player now starts with 200 bombs.
+     * - Bomb is selectable in the crafting interface.
+     * - In game mode, left clicking when bomb is selected causes the character to throw a bomb.
+     *   The bomb animates from the character in an arched trajectory to a target 3 tiles away.
+     *   Once landed, it sits for 2 seconds then plays an explosion animation (using the provided GIF)
+     *   before disappearing.
+     *
+     * UPDATE:
+     * - The explosion image now uses the link https://i.imgur.com/kz0fJNp.gif and is drawn at 128×128 pixels.
+     * - When a bomb explodes, any resource or building (tile types 2, 3, 4, or 5) within 2 tiles is destroyed.
+     *******************************************************/
+
+    // ----- Configuration Constants -----
+    const TILE_SIZE = 32;
+    const MAP_WIDTH = 30;    // 30 * 32 = 960px
+    const MAP_HEIGHT = 20;   // 20 * 32 = 640px
+    const GATHER_DURATION = 250;
+    const RESPAWN_TIME = 15000;
+    const CHICKEN_COUNT = 2;
+    const PLAYER_ID = 1;
+    const TREE_SCALE = 2.0;
+    const BOMB_FLIGHT_DURATION = 600;   // milliseconds for bomb flight
+    const BOMB_LAND_DURATION = 2000;      // milliseconds to sit before explosion
+    const EXPLOSION_DURATION = 1000;      // milliseconds for explosion animation
+    const ARC_HEIGHT = 50;                // maximum arc height in pixels
+    const EXPLOSION_SIZE = TILE_SIZE * 4; // explosion drawn at 128x128 pixels
+
+    // ----- Global Variables -----
+    let mode = "game"; // "game", "editor"
+    let gameMap = [];
+    let tileOwner = [];
+    let zone1 = null, zone2 = null;
+    let currentZone = 1;
+    let gameGrassCanvas = createGrassTile();
+    
+    // The tile currently selected in Editor Mode
+    let editorSelectedTile = 1;
+    
+    // ----- Tile Definitions for the Editor Overlay -----
+    const tileDefinitions = [
+      { id: 0, name: "Empty (Grass)", fallback: "#2ecc71", img: null },
+      { id: 1, name: "Mountain Border", fallback: "#95a5a6", img: null },
+      { id: 2, name: "Rock", fallback: "#7f8c8d", img: null },
+      { id: 3, name: "Tree", fallback: "#27ae60", img: null },
+      { id: 4, name: "Wood Wall", fallback: "#a0522d", img: null },
+      { id: 5, name: "Door", fallback: "#654321", img: null }
+    ];
+    
+    // ----- Image Assets -----
+    let playerImages = { up: null, down: null, left: null, right: null };
+    let tileImages = { tree: null, rock: null };
+    let borderImage = { value: null };
+    let woodWallImage = { value: null };
+    let doorImage = { value: null };
+    let chickenImage = { value: null };
+    let bombImage = { value: null };      // bomb image asset
+    let explosionImage = { value: null }; // explosion animation asset
+    let imagesToLoad = 0, imagesLoaded = 0;
+    function loadSprite(obj, key, src) {
+      imagesToLoad++;
+      const img = new Image();
+      img.src = src;
+      img.onload = () => {
+        obj[key] = img;
+        imagesLoaded++;
+        updateTileOverlayImages();
+      };
+    }
+    // Use direct image links:
+    loadSprite(playerImages, "up", "https://i.imgur.com/1pd2rri.png");
+    loadSprite(playerImages, "down", "https://i.imgur.com/Su1AqUr.png");
+    loadSprite(playerImages, "left", "https://i.imgur.com/crtR68b.png");
+    loadSprite(playerImages, "right", "https://i.imgur.com/M7FmKCZ.png");
+    loadSprite(tileImages, "tree", "https://i.imgur.com/THmRKOw.png");
+    loadSprite(tileImages, "rock", "https://i.imgur.com/jcGAXHX.png");
+    loadSprite(borderImage, "value", "https://i.imgur.com/uVv4z1h.png");
+    loadSprite(woodWallImage, "value", "https://i.imgur.com/mmAcJtx.png");
+    loadSprite(doorImage, "value", "https://i.imgur.com/IBkhUcP.png");
+    loadSprite(chickenImage, "value", "https://i.imgur.com/6fbH7ZK.png");
+    loadSprite(bombImage, "value", "https://i.imgur.com/FNOyVok.png");
+    loadSprite(explosionImage, "value", "https://i.imgur.com/kz0fJNp.gif");
+    
+    // Update tile definitions with images (for editor overlay)
+    function updateTileOverlayImages() {
+      tileDefinitions.forEach(def => {
+        if (def.id === 1 && borderImage.value) def.img = borderImage.value;
+        else if (def.id === 2 && tileImages.rock) def.img = tileImages.rock;
+        else if (def.id === 3 && tileImages.tree) def.img = tileImages.tree;
+        else if (def.id === 4 && woodWallImage.value) def.img = woodWallImage.value;
+        else if (def.id === 5 && doorImage.value) def.img = doorImage.value;
+      });
+      populateTileList();
+    }
+    
+    // ----- Create a Grass Tile Canvas (with noise) -----
+    function createGrassTile() {
+      const c = document.createElement('canvas');
+      c.width = TILE_SIZE;
+      c.height = TILE_SIZE;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = "#2ecc71";
+      ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+      for (let i = 0; i < 60; i++){
+        const x = Math.random() * TILE_SIZE, y = Math.random() * TILE_SIZE;
+        ctx.fillStyle = "#27ae60"; 
+        ctx.fillRect(x, y, 1, 1);
+      }
+      for (let i = 0; i < 40; i++){
+        const x = Math.random() * TILE_SIZE, y = Math.random() * TILE_SIZE;
+        ctx.fillStyle = "#58e68f"; 
+        ctx.fillRect(x, y, 1, 1);
+      }
+      return c;
+    }
+    
+    // ----- Map Generation -----
+    function generateEmptyMap() {
+      const map = [], owner = [];
+      for (let y = 0; y < MAP_HEIGHT; y++){
+        map[y] = [];
+        owner[y] = [];
+        for (let x = 0; x < MAP_WIDTH; x++){
+          map[y][x] = 0;
+          owner[y][x] = 0;
+        }
+      }
+      return { map, owner };
+    }
+    function generateZone1() {
+      const { map, owner } = generateEmptyMap();
+      for (let x = 0; x < MAP_WIDTH; x++){
+        map[0][x] = 1;
+        map[MAP_HEIGHT - 1][x] = 1;
+      }
+      for (let y = 0; y < MAP_HEIGHT; y++){
+        map[y][0] = 1;
+        map[y][MAP_WIDTH - 1] = 1;
+      }
+      const centerY = Math.floor(MAP_HEIGHT / 2);
+      map[centerY][0] = 0;
+      for (let y = 1; y < MAP_HEIGHT - 1; y++){
+        for (let x = 1; x < MAP_WIDTH - 1; x++){
+          const r = Math.random();
+          if (r < 0.05) map[y][x] = 2;
+          else if (r < 0.10) map[y][x] = 3;
+          else map[y][x] = 0;
+        }
+      }
+      return { map, owner };
+    }
+    function generateZone2() {
+      const { map, owner } = generateEmptyMap();
+      for (let x = 0; x < MAP_WIDTH; x++){
+        map[0][x] = 1;
+        map[MAP_HEIGHT - 1][x] = 1;
+      }
+      for (let y = 0; y < MAP_HEIGHT; y++){
+        map[y][0] = 1;
+        map[y][MAP_WIDTH - 1] = 1;
+      }
+      const centerY = Math.floor(MAP_HEIGHT / 2);
+      map[centerY][MAP_WIDTH - 1] = 0;
+      for (let y = 1; y < MAP_HEIGHT - 1; y++){
+        for (let x = 1; x < MAP_WIDTH - 1; x++){
+          map[y][x] = 0;
+        }
+      }
+      return { map, owner };
+    }
+    
+    // ----- Global Game Variables -----
+    let chickens = [];
+    let bombs = []; // array for bombs with animation state
+    const player = {
+      id: PLAYER_ID,
+      x: 2,
+      y: 2,
+      direction: "down",
+      offsetX: 0,
+      offsetY: 0,
+      speed: 4,
+      moving: false,
+      targetX: 2,
+      targetY: 2,
+      gathering: false,
+      gatherFrames: 0,
+      gatherTarget: null,
+      inventory: { stone: 200, wood: 200, bombs: 200 }, // player starts with 200 bombs
+      miningLevel: 1,
+      miningXP: 0,
+      woodcutLevel: 1,
+      woodcutXP: 0,
+      justTeleported: false
+    };
+    
+    // ----- Keyboard Input -----
+    const keys = { KeyW: false, KeyA: false, KeyS: false, KeyD: false, Space: false };
+    window.addEventListener("keydown", (e) => {
+      if (keys.hasOwnProperty(e.code)) { keys[e.code] = true; e.preventDefault(); }
+      if (e.code === "KeyE") {
+        // Toggle editor mode (which shows the tile selector overlay)
+        mode = (mode === "game") ? "editor" : "game";
+        document.getElementById("tileSelectorOverlay").style.display = (mode === "editor") ? "block" : "none";
+      }
+      if (e.code === "KeyV") {
+        // Toggle the inventory/skills overlay
+        const invOverlay = document.getElementById("inventoryOverlay");
+        invOverlay.style.display = (invOverlay.style.display === "block") ? "none" : "block";
+        updateInventoryOverlay();
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      if (keys.hasOwnProperty(e.code)) { keys[e.code] = false; e.preventDefault(); }
+    });
+    
+    // ----- Mouse Input for Editor Mode (click and drag painting) -----
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "28px sans-serif";
+    
+    // Variable to track if the mouse button is held down
+    let isMouseDown = false;
+    
+    // Function to paint the currently selected tile at the mouse location (editor mode)
+    function paintTile(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const col = Math.floor(mx / TILE_SIZE);
+      const row = Math.floor(my / TILE_SIZE);
+      if (row >= 0 && row < MAP_HEIGHT && col >= 0 && col < MAP_WIDTH) {
+        gameMap[row][col] = editorSelectedTile;
+      }
+    }
+    
+    canvas.addEventListener("mousedown", (e) => {
+      if (mode !== "editor") return;
+      isMouseDown = true;
+      paintTile(e);
+    });
+    
+    canvas.addEventListener("mousemove", (e) => {
+      if (mode !== "editor" || !isMouseDown) return;
+      paintTile(e);
+    });
+    
+    canvas.addEventListener("mouseup", (e) => {
+      if (mode !== "editor") return;
+      isMouseDown = false;
+    });
+    
+    canvas.addEventListener("mouseleave", (e) => {
+      if (mode !== "editor") return;
+      isMouseDown = false;
+    });
+    
+    // NEW: In game mode, left-click will throw a bomb if Bomb is the selected crafting item.
+    canvas.addEventListener("click", (e) => {
+      if (mode === "game" && selectedCraftItem === "bomb") {
+        throwBomb();
+      }
+    });
+    
+    // ----- Scheduled Events -----
+    function scheduleEvent(delay, func) {
+      setTimeout(func, delay);
+    }
+    
+    // ----- Utility Functions -----
+    function getTile(x, y) {
+      if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) return 1;
+      return gameMap[y][x];
+    }
+    function isCollidable(tile, x, y, moverID = 0) {
+      if (tile === 0) return false;
+      if (tile === 5) return tileOwner[y][x] !== moverID;
+      return true;
+    }
+    function getTileInFront(x, y, dir) {
+      let dx = 0, dy = 0;
+      switch (dir) {
+        case "up": dy = -1; break;
+        case "down": dy = 1; break;
+        case "left": dx = -1; break;
+        case "right": dx = 1; break;
+      }
+      return { x: x + dx, y: y + dy };
+    }
+    
+    // ----- Function to Apply Bomb Explosion Effects -----
+    function applyBombExplosion(bomb) {
+      // Determine the bomb's tile coordinates (using its target position)
+      const tileX = Math.floor(bomb.targetX / TILE_SIZE);
+      const tileY = Math.floor(bomb.targetY / TILE_SIZE);
+      // Check every tile within 2 tiles (Euclidean distance)
+      for (let y = tileY - 2; y <= tileY + 2; y++) {
+        for (let x = tileX - 2; x <= tileX + 2; x++) {
+          if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) continue;
+          const dx = x - tileX;
+          const dy = y - tileY;
+          if (Math.sqrt(dx*dx + dy*dy) <= 2) {
+            // If the tile is a resource or building (tile types 2,3,4,5), destroy it.
+            if ([2, 3, 4, 5].includes(gameMap[y][x])) {
+              gameMap[y][x] = 0;
+              tileOwner[y][x] = 0;
+            }
+          }
+        }
+      }
+    }
+    
+    // ----- Harvesting and XP Functions -----
+    function harvestResource(tx, ty, tileType, harvester) {
+      if (tileType === 2) {
+        harvester.inventory.stone += 5;
+        gameMap[ty][tx] = 0;
+        tileOwner[ty][tx] = 0;
+        scheduleEvent(RESPAWN_TIME, () => {
+          let rx, ry;
+          do {
+            rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
+            ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+          } while (isCollidable(getTile(rx, ry), rx, ry));
+          gameMap[ry][rx] = 2;
+        });
+      }
+      else if (tileType === 3) {
+        harvester.inventory.wood += 5;
+        gameMap[ty][tx] = 0;
+        tileOwner[ty][tx] = 0;
+        scheduleEvent(RESPAWN_TIME, () => {
+          let rx, ry;
+          do {
+            rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
+            ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+          } while (isCollidable(getTile(rx, ry), rx, ry));
+          gameMap[ry][rx] = 3;
+        });
+      }
+      else if (tileType === 4 || tileType === 5) {
+        if (tileOwner[ty][tx] === harvester.id) {
+          harvester.inventory.wood += 5;
+          gameMap[ty][tx] = 0;
+          tileOwner[ty][tx] = 0;
+        }
+      }
+    }
+    function gainXPForPlayer(tileType) {
+      if (tileType === 2) {
+        player.miningXP += 10;
+        let xpNeeded = 50 * Math.pow(player.miningLevel, 1.5);
+        while (player.miningXP >= xpNeeded) {
+          player.miningXP -= xpNeeded;
+          player.miningLevel++;
+          xpNeeded = 50 * Math.pow(player.miningLevel, 1.5);
+        }
+      }
+      else if (tileType === 3) {
+        player.woodcutXP += 10;
+        let xpNeeded = 50 * Math.pow(player.woodcutLevel, 1.5);
+        while (player.woodcutXP >= xpNeeded) {
+          player.woodcutXP -= xpNeeded;
+          player.woodcutLevel++;
+          xpNeeded = 50 * Math.pow(player.woodcutLevel, 1.5);
+        }
+      }
+    }
+    
+    // ----- Crafting Functions -----
+    let selectedCraftItem = "woodWall";
+    function craftSelectedItem() {
+      if (selectedCraftItem === "woodWall") {
+        craftWall(player);
+      } else if (selectedCraftItem === "woodDoor") {
+        craftDoor(player);
+      } else if (selectedCraftItem === "bomb") {
+        // Inform the user that bomb throwing now requires left-click in game mode.
+        alert("Bomb selected! Left click in the game to throw a bomb.");
+      }
+      updateInventoryOverlay(); // update overlays if needed
+    }
+    function craftWall(crafter) {
+      if (crafter.inventory.wood < 5) return;
+      const front = getTileInFront(crafter.x, crafter.y, crafter.direction);
+      if (getTile(front.x, front.y) !== 0) return;
+      crafter.inventory.wood -= 5;
+      gameMap[front.y][front.x] = 4;
+      tileOwner[front.y][front.x] = crafter.id;
+    }
+    function craftDoor(crafter) {
+      if (crafter.inventory.wood < 5) return;
+      const front = getTileInFront(crafter.x, crafter.y, crafter.direction);
+      if (getTile(front.x, front.y) !== 0) return;
+      crafter.inventory.wood -= 5;
+      gameMap[front.y][front.x] = 5;
+      tileOwner[front.y][front.x] = crafter.id;
+    }
+    
+    // NEW: Bomb throwing function with arched flight and explosion animation.
+    function throwBomb() {
+      if (player.inventory.bombs <= 0) return;
+      player.inventory.bombs--;
+      updateInventoryOverlay();
+      const now = Date.now();
+      // Calculate start position (center of player's tile)
+      const startX = player.x * TILE_SIZE + TILE_SIZE/2;
+      const startY = player.y * TILE_SIZE + TILE_SIZE/2;
+      // Calculate target tile 3 tiles ahead (clamped to map bounds), then its center position.
+      let dx = 0, dy = 0;
+      switch (player.direction) {
+        case "up": dy = -1; break;
+        case "down": dy = 1; break;
+        case "left": dx = -1; break;
+        case "right": dx = 1; break;
+      }
+      let targetTileX = player.x + dx * 3;
+      let targetTileY = player.y + dy * 3;
+      targetTileX = Math.max(0, Math.min(MAP_WIDTH - 1, targetTileX));
+      targetTileY = Math.max(0, Math.min(MAP_HEIGHT - 1, targetTileY));
+      const targetX = targetTileX * TILE_SIZE + TILE_SIZE/2;
+      const targetY = targetTileY * TILE_SIZE + TILE_SIZE/2;
+      
+      // Create bomb object with animation state.
+      const bomb = {
+        startX, startY,
+        targetX, targetY,
+        startTime: now,
+        flightDuration: BOMB_FLIGHT_DURATION,
+        state: "flying", // other states: "landed", "exploding"
+        progress: 0,
+        landedTime: null,
+        explosionStartTime: null,
+        explosionDuration: EXPLOSION_DURATION,
+        explosionApplied: false
+      };
+      bombs.push(bomb);
+    }
+    
+    // NEW: Update bombs each frame based on time.
+    function updateBombs() {
+      const now = Date.now();
+      for (let i = bombs.length - 1; i >= 0; i--) {
+        const bomb = bombs[i];
+        if (bomb.state === "flying") {
+          const progress = (now - bomb.startTime) / bomb.flightDuration;
+          if (progress >= 1) {
+            bomb.state = "landed";
+            bomb.landedTime = now;
+            bomb.progress = 1;
+          } else {
+            bomb.progress = progress;
+          }
+        } else if (bomb.state === "landed") {
+          if (now - bomb.landedTime >= BOMB_LAND_DURATION) {
+            bomb.state = "exploding";
+            bomb.explosionStartTime = now;
+            if (!bomb.explosionApplied) {
+              applyBombExplosion(bomb);
+              bomb.explosionApplied = true;
+            }
+          }
+        } else if (bomb.state === "exploding") {
+          if (now - bomb.explosionStartTime >= bomb.explosionDuration) {
+            bombs.splice(i, 1);
+          }
+        }
+      }
+    }
+    
+    // ----- Zone Transition Logic -----
+    function checkZoneTransition() {
+      const centerY = Math.floor(MAP_HEIGHT / 2);
+      if (!player.justTeleported && currentZone === 1 && player.x === 0 && player.y === centerY) {
+        currentZone = 2;
+        gameMap = zone2.map;
+        tileOwner = zone2.owner;
+        player.x = MAP_WIDTH - 2;
+        player.y = centerY;
+        player.offsetX = 0;
+        player.offsetY = 0;
+        player.justTeleported = true;
+      }
+      else if (!player.justTeleported && currentZone === 2 && player.x === MAP_WIDTH - 1 && player.y === centerY) {
+        currentZone = 1;
+        gameMap = zone1.map;
+        tileOwner = zone1.owner;
+        player.x = 1;
+        player.y = centerY;
+        player.offsetX = 0;
+        player.offsetY = 0;
+        player.justTeleported = true;
+      }
+      if (currentZone === 1 && !(player.x === 0 && player.y === centerY)) {
+        player.justTeleported = false;
+      }
+      if (currentZone === 2 && !(player.x === MAP_WIDTH - 1 && player.y === centerY)) {
+        player.justTeleported = false;
+      }
+    }
+    
+    // ----- Inventory & Skills Overlay Update -----
+    function updateInventoryOverlay() {
+      const invDiv = document.getElementById("inventoryDetails");
+      const skillsDiv = document.getElementById("skillsDetails");
+      const invParts = [];
+      if (player.inventory.stone > 0) invParts.push(`🪨 ${player.inventory.stone}`);
+      if (player.inventory.wood > 0) invParts.push(`Wood: ${player.inventory.wood}`);
+      if (player.inventory.bombs > 0) invParts.push(`💣 ${player.inventory.bombs}`);
+      invDiv.innerHTML = invParts.length ? invParts.join(", ") : "(empty)";
+      skillsDiv.innerHTML = `Mining: L${player.miningLevel} (XP: ${player.miningXP.toFixed(0)})<br>
+                             Woodcutting: L${player.woodcutLevel} (XP: ${player.woodcutXP.toFixed(0)})`;
+    }
+    
+    // ----- Game Initialization and Chicken Generation -----
+    function initMaps() {
+      zone1 = generateZone1();
+      zone2 = generateZone2();
+      currentZone = 1;
+      gameMap = zone1.map;
+      tileOwner = zone1.owner;
+    }
+    function generateChickens() {
+      chickens = [];
+      for (let i = 0; i < CHICKEN_COUNT; i++) {
+        let cx, cy;
+        do {
+          cx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
+          cy = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+        } while (isCollidable(getTile(cx, cy), cx, cy));
+        chickens.push({
+          x: cx,
+          y: cy,
+          offsetX: 0,
+          offsetY: 0,
+          targetX: cx,
+          targetY: cy,
+          moving: false,
+          speed: 1,
+          direction: "down"
+        });
+      }
+    }
+    function initGame() {
+      initMaps();
+      do {
+        player.x = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
+        player.y = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+      } while (isCollidable(getTile(player.x, player.y), player.x, player.y));
+      let forcedRockX = player.x + 2, forcedRockY = player.y;
+      if (forcedRockX < MAP_WIDTH - 1) { gameMap[forcedRockY][forcedRockX] = 2; }
+      let forcedTreeX = player.x - 2, forcedTreeY = player.y;
+      if (forcedTreeX > 0) { gameMap[forcedTreeY][forcedTreeX] = 3; }
+      updateInventoryOverlay();
+      generateChickens();
+    }
+    
+    // ----- Game Update Functions -----
+    function updatePlayer() {
+      if (!player.moving) {
+        let nx = player.x, ny = player.y, changedDir = false;
+        if (keys.KeyW) { ny--; if (player.direction !== "up") { player.direction = "up"; changedDir = true; } }
+        else if (keys.KeyS) { ny++; if (player.direction !== "down") { player.direction = "down"; changedDir = true; } }
+        else if (keys.KeyA) { nx--; if (player.direction !== "left") { player.direction = "left"; changedDir = true; } }
+        else if (keys.KeyD) { nx++; if (player.direction !== "right") { player.direction = "right"; changedDir = true; } }
+        if (changedDir && nx === player.x && ny === player.y) {
+          player.gathering = false;
+          player.gatherFrames = 0;
+          player.gatherTarget = null;
+        }
+        if (nx !== player.x || ny !== player.y) {
+          if (!isCollidable(getTile(nx, ny), nx, ny, PLAYER_ID)) {
+            player.moving = true;
+            player.targetX = nx;
+            player.targetY = ny;
+            player.gathering = false;
+            player.gatherFrames = 0;
+            player.gatherTarget = null;
+          } else {
+            player.gathering = false;
+            player.gatherFrames = 0;
+            player.gatherTarget = null;
+          }
+        }
+        if (keys.Space && !player.gathering) {
+          const front = getTileInFront(player.x, player.y, player.direction);
+          const t = getTile(front.x, front.y);
+          if (t === 2 || t === 3 || t === 4 || t === 5) {
+            player.gathering = true;
+            player.gatherFrames = 0;
+            player.gatherTarget = { x: front.x, y: front.y, tileType: t };
+          }
+        }
+        if (player.gathering && player.gatherTarget) {
+          player.gatherFrames++;
+          if (player.gatherFrames >= GATHER_DURATION) {
+            const { x, y, tileType } = player.gatherTarget;
+            if (getTile(x, y) === tileType) {
+              harvestResource(x, y, tileType, player);
+              gainXPForPlayer(tileType);
+              updateInventoryOverlay();
+            }
+            player.gathering = false;
+            player.gatherFrames = 0;
+            player.gatherTarget = null;
+          }
+        }
+      } else {
+        const dx = (player.targetX - player.x) * TILE_SIZE - player.offsetX;
+        const dy = (player.targetY - player.y) * TILE_SIZE - player.offsetY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > player.speed) {
+          const ang = Math.atan2(dy, dx);
+          player.offsetX += Math.cos(ang) * player.speed;
+          player.offsetY += Math.sin(ang) * player.speed;
+        } else {
+          player.x = player.targetX;
+          player.y = player.targetY;
+          player.offsetX = 0;
+          player.offsetY = 0;
+          player.moving = false;
+        }
+      }
+    }
+    function updateChickens() {
+      chickens.forEach(chk => {
+        if (!chk.moving) {
+          if (Math.random() < 0.02) {
+            const dirs = ["up", "down", "left", "right"];
+            chk.direction = dirs[Math.floor(Math.random() * 4)];
+          }
+          let nx = chk.x, ny = chk.y;
+          if (chk.direction === "up") ny--;
+          else if (chk.direction === "down") ny++;
+          else if (chk.direction === "left") nx--;
+          else if (chk.direction === "right") nx++;
+          if (!isCollidable(getTile(nx, ny), nx, ny)) {
+            chk.moving = true;
+            chk.targetX = nx;
+            chk.targetY = ny;
+          }
+        } else {
+          const dx = (chk.targetX - chk.x) * TILE_SIZE - chk.offsetX;
+          const dy = (chk.targetY - chk.y) * TILE_SIZE - chk.offsetY;
+          const dist = Math.hypot(dx, dy);
+          if (dist > chk.speed) {
+            const ang = Math.atan2(dy, dx);
+            chk.offsetX += Math.cos(ang) * chk.speed;
+            chk.offsetY += Math.sin(ang) * chk.speed;
+          } else {
+            chk.x = chk.targetX;
+            chk.y = chk.targetY;
+            chk.offsetX = 0;
+            chk.offsetY = 0;
+            chk.moving = false;
+          }
+        }
+      });
+    }
+    function updateGame() {
+      updatePlayer();
+      updateChickens();
+      checkZoneTransition();
+      updateBombs();  // update bomb animations
+    }
+    function drawGame() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let y = 0; y < MAP_HEIGHT; y++){
+        for (let x = 0; x < MAP_WIDTH; x++){
+          ctx.drawImage(gameGrassCanvas, x * TILE_SIZE, y * TILE_SIZE);
+          const tile = gameMap[y][x];
+          if (tile !== 0) {
+            let shakeX = 0, shakeY = 0;
+            if (player.gathering && player.gatherTarget &&
+                player.gatherTarget.x === x && player.gatherTarget.y === y &&
+                (player.gatherFrames % 60) < 10) {
+              shakeX = (Math.random() - 0.5) * 4;
+              shakeY = (Math.random() - 0.5) * 4;
+            }
+            let drawX = x * TILE_SIZE + shakeX;
+            let drawY = y * TILE_SIZE + shakeY;
+            if (tile === 1 && borderImage.value) {
+              ctx.drawImage(borderImage.value, drawX, drawY, TILE_SIZE, TILE_SIZE);
+            }
+            else if (tile === 2 && tileImages.rock) {
+              ctx.drawImage(tileImages.rock, drawX, drawY, TILE_SIZE, TILE_SIZE);
+            }
+            else if (tile === 3 && tileImages.tree) {
+              const treeSize = TILE_SIZE * TREE_SCALE;
+              const offset = (treeSize - TILE_SIZE) / 2;
+              ctx.drawImage(tileImages.tree, x * TILE_SIZE - offset + shakeX, y * TILE_SIZE - offset + shakeY, treeSize, treeSize);
+            }
+            else if (tile === 4 && woodWallImage.value) {
+              ctx.drawImage(woodWallImage.value, drawX, drawY, TILE_SIZE, TILE_SIZE);
+            }
+            else if (tile === 5) {
+              if (doorImage.value) {
+                ctx.drawImage(doorImage.value, drawX, drawY, TILE_SIZE, TILE_SIZE);
+              } else {
+                ctx.fillStyle = "#fff";
+                ctx.fillText("🚪", x * TILE_SIZE + TILE_SIZE/2 + shakeX, y * TILE_SIZE + TILE_SIZE/2 + shakeY);
+              }
+            }
+          }
+        }
+      }
+      // Draw bombs with their current animation state.
+      bombs.forEach(bomb => {
+        let posX, posY;
+        if (bomb.state === "flying") {
+          // Linear interpolation plus an arch (parabolic offset)
+          const progress = bomb.progress;
+          posX = bomb.startX + (bomb.targetX - bomb.startX) * progress;
+          posY = bomb.startY + (bomb.targetY - bomb.startY) * progress;
+          // Apply an arch: maximum upward offset at progress = 0.5
+          const arcOffset = -ARC_HEIGHT * 4 * progress * (1 - progress);
+          posY += arcOffset;
+          ctx.drawImage(bombImage.value, posX - TILE_SIZE/2, posY - TILE_SIZE/2, TILE_SIZE, TILE_SIZE);
+        } else if (bomb.state === "landed") {
+          // Draw bomb at target position.
+          ctx.drawImage(bombImage.value, bomb.targetX - TILE_SIZE/2, bomb.targetY - TILE_SIZE/2, TILE_SIZE, TILE_SIZE);
+        } else if (bomb.state === "exploding") {
+          // Draw explosion animation at target position using EXPLOSION_SIZE.
+          ctx.drawImage(explosionImage.value, bomb.targetX - EXPLOSION_SIZE/2, bomb.targetY - EXPLOSION_SIZE/2, EXPLOSION_SIZE, EXPLOSION_SIZE);
+        }
+      });
+      ctx.font = "28px sans-serif";
+      const px = player.x * TILE_SIZE + player.offsetX;
+      const py = player.y * TILE_SIZE + player.offsetY;
+      let pSprite = playerImages.down;
+      switch (player.direction) {
+        case "up": pSprite = playerImages.up; break;
+        case "down": pSprite = playerImages.down; break;
+        case "left": pSprite = playerImages.left; break;
+        case "right": pSprite = playerImages.right; break;
+      }
+      if (pSprite) { ctx.drawImage(pSprite, px, py, TILE_SIZE, TILE_SIZE); }
+      
+      // Draw chickens—if the chicken image isn’t available, set fill style to white so the emoji is visible.
+      ctx.fillStyle = "#fff";
+      chickens.forEach(chk => {
+        const cx = chk.x * TILE_SIZE + chk.offsetX;
+        const cy = chk.y * TILE_SIZE + chk.offsetY;
+        if (chickenImage.value) {
+          ctx.drawImage(chickenImage.value, cx, cy, TILE_SIZE, TILE_SIZE);
+        } else {
+          ctx.fillText("🐔", cx + TILE_SIZE/2, cy + TILE_SIZE/2);
+        }
+      });
+    }
+    
+    // ----- Editor Mode: Populate the Tile Selector Overlay -----
+    function populateTileList(filter = "") {
+      const tileListDiv = document.getElementById("tileList");
+      tileListDiv.innerHTML = "";
+      tileDefinitions.forEach(def => {
+        if (def.name.toLowerCase().includes(filter.toLowerCase())) {
+          const itemDiv = document.createElement("div");
+          itemDiv.className = "tileItem" + (editorSelectedTile === def.id ? " selected" : "");
+          if (def.img) {
+            const imgElem = document.createElement("img");
+            imgElem.src = def.img.src;
+            itemDiv.appendChild(imgElem);
+          } else {
+            const placeholder = document.createElement("div");
+            placeholder.style.width = "32px";
+            placeholder.style.height = "32px";
+            placeholder.style.backgroundColor = def.fallback;
+            placeholder.style.marginRight = "10px";
+            itemDiv.appendChild(placeholder);
+          }
+          const nameSpan = document.createElement("span");
+          nameSpan.textContent = def.name;
+          itemDiv.appendChild(nameSpan);
+          itemDiv.addEventListener("click", () => {
+            editorSelectedTile = def.id;
+            populateTileList(document.getElementById("tileSearch").value);
+          });
+          tileListDiv.appendChild(itemDiv);
+        }
+      });
+    }
+    document.getElementById("tileSearch").addEventListener("input", (e) => {
+      populateTileList(e.target.value);
+    });
+    
+    // ----- Map Persistence: Save to Code -----
+    document.getElementById("saveToCodeBtn").addEventListener("click", () => {
+      const data = {
+        zone: currentZone,  // 1 or 2
+        map: gameMap,
+        owner: tileOwner
+      };
+      fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      .then(response => response.text())
+      .then(text => {
+        alert(text);
+      })
+      .catch(err => {
+        alert("Error saving: " + err);
+      });
+    });
+    
+    // ----- Toggle Tile Selector Panel Side -----
+    document.getElementById("toggleTilePanelPosition").addEventListener("click", function() {
+      const panel = document.getElementById("tileSelectorOverlay");
+      panel.classList.toggle("leftSide");
+    });
+    
+    // ----- Main Loop -----
+    function gameLoop() {
+      if (imagesLoaded >= imagesToLoad) {
+        if (mode === "game") {
+          updateGame();
+          drawGame();
+        } else if (mode === "editor") {
+          drawGame();
+          // The tile selector overlay remains visible in editor mode.
+        }
+      }
+      requestAnimationFrame(gameLoop);
+    }
+    
+    // ----- Crafting UI Listeners -----
+    const dropupWrapper = document.getElementById("dropupWrapper");
+    const dropupBtn = document.getElementById("dropupBtn");
+    const dropupContent = document.getElementById("dropupContent");
+    dropupBtn.addEventListener("click", () => { dropupWrapper.classList.toggle("show"); });
+    dropupContent.addEventListener("click", (e) => {
+      if (e.target.dataset.item) {
+        selectedCraftItem = e.target.dataset.item;
+        dropupBtn.textContent = e.target.textContent;
+        dropupWrapper.classList.remove("show");
+      }
+    });
+    window.addEventListener("click", (e) => {
+      if (!dropupWrapper.contains(e.target) && e.target !== dropupBtn) {
+        dropupWrapper.classList.remove("show");
+      }
+    });
+    document.getElementById("craftBtn").addEventListener("click", craftSelectedItem);
+    
+    // ----- Start the Game -----
+    initGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
